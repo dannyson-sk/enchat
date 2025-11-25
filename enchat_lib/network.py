@@ -82,15 +82,27 @@ def outbox_worker(stop_evt: threading.Event):
 
             current_key = session_key.get_session_key(room)
             if not current_key:
-                # This can happen on first message, so we generate a key.
-                current_key = session_key.generate_session_key()
-                session_key.set_session_key(room, current_key)
-                encrypted_key = session_key.encrypt_session_key(current_key, f)
-                body = f"SESSIONKEY:{encrypted_key}"
-                try:
-                    session.post(f"{server}/{room}", data=body, timeout=15)
-                except Exception:
-                    pass
+                # Wait for another user to broadcast a session key
+                # This prevents each user from generating their own key
+                max_wait = 3
+                waited = 0
+                while waited < max_wait and not stop_evt.is_set():
+                    time.sleep(0.2)
+                    waited += 0.2
+                    current_key = session_key.get_session_key(room)
+                    if current_key:
+                        break
+
+                # If still no key after waiting, generate one
+                if not current_key:
+                    current_key = session_key.generate_session_key()
+                    session_key.set_session_key(room, current_key)
+                    encrypted_key = session_key.encrypt_session_key(current_key, f)
+                    body = f"SESSIONKEY:{encrypted_key}"
+                    try:
+                        session.post(f"{server}/{room}", data=body, timeout=15)
+                    except Exception:
+                        pass
             
             # --- Message Sending Logic ---
             if kind == "FILE_TRANSFER":
@@ -191,7 +203,12 @@ def listener(room, nick, f, server, buf, stop_evt: threading.Event, shutdown_eve
                     if not plain: continue
 
                     current_key = session_key.get_session_key(room)
-                    if not current_key: continue
+                    if not current_key:
+                        # Wait briefly for a session key to arrive before skipping
+                        time.sleep(0.3)
+                        current_key = session_key.get_session_key(room)
+                        if not current_key:
+                            continue
 
                     msg = session_key.decrypt_with_session(plain, current_key)
                     if not msg: continue

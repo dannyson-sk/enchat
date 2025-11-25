@@ -212,6 +212,11 @@ class ChatUI:
         threading.Thread(target=self._reaper, daemon=True).start()
         start_char_thread()
 
+        # Wait for listener to initialize and receive any existing session keys
+        # from other participants before sending our first message. This prevents
+        # a race condition where each user generates their own session key.
+        time.sleep(2)
+
         self.buf.append(("System", f"Joined '{self.room}'", False))
         network.enqueue_sys(self.room, self.nick, "joined", self.server, self.f)
 
